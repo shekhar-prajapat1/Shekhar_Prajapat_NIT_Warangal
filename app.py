@@ -1,11 +1,3 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-import logging
-from models import ExtractRequest, ExtractResponse, ExtractData
-from config import config, Config
-from services.document_processor import DocumentProcessor
-from services.ocr_service import OCRService
-from services.extraction_service import ExtractionService
 from services.reconciliation_service import ReconciliationService
 
 # Configure logging
@@ -50,6 +42,14 @@ async def root():
         "version": config.API_VERSION
     }
 
+
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def read_root():
+    return FileResponse('static/index.html')
 
 @app.post("/extract-bill-data", response_model=ExtractResponse)
 async def extract_bill_data(request: ExtractRequest):
