@@ -13,13 +13,27 @@ class DocumentProcessor:
     @staticmethod
     def download_image(url: str) -> Optional[Image.Image]:
         """
-        Download image from URL
+        Download image from URL (returns first page for PDFs)
         
         Args:
             url: URL of the image to download
             
         Returns:
             PIL Image object or None if download fails
+        """
+        images = DocumentProcessor.download_all_pages(url)
+        return images[0] if images else None
+    
+    @staticmethod
+    def download_all_pages(url: str) -> list[Image.Image]:
+        """
+        Download all pages from a document URL (supports multi-page PDFs)
+        
+        Args:
+            url: URL of the document to download
+            
+        Returns:
+            List of PIL Image objects (one per page)
         """
         try:
             logger.info(f"Downloading document from: {url}")
@@ -32,33 +46,32 @@ class DocumentProcessor:
             if 'application/pdf' in content_type or url.lower().endswith('.pdf'):
                 try:
                     from pdf2image import convert_from_bytes
-                    # Convert first page of PDF to image
+                    # Convert ALL pages of PDF to images
                     images = convert_from_bytes(response.content)
                     if images:
-                        logger.info("Successfully converted PDF to image")
-                        return images[0]
+                        logger.info(f"Successfully converted PDF to {len(images)} page(s)")
+                        return images
                     else:
                         logger.error("PDF conversion returned no images")
-                        return None
+                        return []
                 except ImportError:
                     logger.error("pdf2image not installed. Cannot process PDFs.")
-                    return None
+                    return []
                 except Exception as e:
                     logger.error(f"PDF conversion failed: {e}")
-                    return None
+                    return []
 
-            # Handle Images
+            # Handle Images (single page)
             image = Image.open(BytesIO(response.content))
             logger.info(f"Image downloaded successfully. Size: {image.size}, Mode: {image.mode}")
-            
-            return image
+            return [image]
             
         except requests.RequestException as e:
             logger.error(f"Failed to download document: {e}")
-            return None
+            return []
         except Exception as e:
             logger.error(f"Failed to process document: {e}")
-            return None
+            return []
     
     @staticmethod
     def preprocess_image(image: Image.Image, max_size: tuple = (2048, 2048)) -> Image.Image:

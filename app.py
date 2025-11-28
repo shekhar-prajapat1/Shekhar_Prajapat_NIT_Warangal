@@ -80,60 +80,58 @@ async def extract_bill_data(request: ExtractRequest):
                 detail="OCR service not initialized. Please check GEMINI_API_KEY configuration."
             )
         
-        # Step 1: Download image
-        image = DocumentProcessor.download_image(str(request.document))
-        if image is None:
+        # Step 1: Download all pages
+        images = DocumentProcessor.download_all_pages(str(request.document))
+        if not images:
             return ExtractResponse(
                 is_success=False,
-                error="Failed to download image from provided URL"
+                error="Failed to download document from provided URL"
             )
         
-        # Step 2: Preprocess image
-        image = DocumentProcessor.preprocess_image(image, config.MAX_IMAGE_SIZE)
+        logger.info(f"Processing {len(images)} page(s)")
         
-        # Step 3: Extract data using OCR
-        ocr_data = ocr_service.extract_bill_data(image)
+        # Step 2 & 3: Process each page
+        all_pagewise_items = []
         
-        # Check for OCR errors
-        if "error" in ocr_data and not ocr_data.get("line_items"):
+        for page_num, image in enumerate(images, start=1):
+            # Preprocess image
+            image = DocumentProcessor.preprocess_image(image, config.MAX_IMAGE_SIZE)
+            
+            # Extract data using OCR
+            ocr_data = ocr_service.extract_bill_data(image)
+            
+            # Check for OCR errors
+            if "error" in ocr_data and not ocr_data.get("line_items"):
+                logger.warning(f"OCR extraction failed for page {page_num}: {ocr_data['error']}")
+                continue
+            
+            # Transform to structured line items
+            pagewise_items = ExtractionService.transform_to_line_items(ocr_data)
+            
+            if pagewise_items and pagewise_items[0].bill_items:
+                # Update page number
+                pagewise_items[0].page_no = str(page_num)
+                all_pagewise_items.extend(pagewise_items)
+        
+        if not all_pagewise_items:
             return ExtractResponse(
                 is_success=False,
-                error=f"OCR extraction failed: {ocr_data['error']}"
+                error="No line items could be extracted from the document"
             )
         
-        # Step 4: Transform to structured line items
-        pagewise_items = ExtractionService.transform_to_line_items(ocr_data)
+        # Step 4: Calculate reconciled amount across all pages
+        reconciled_amount = ReconciliationService.calculate_total(all_pagewise_items)
+        total_item_count = ReconciliationService.count_items(all_pagewise_items)
         
-        if not pagewise_items or not pagewise_items[0].bill_items:
-            return ExtractResponse(
-                is_success=False,
-                error="No line items could be extracted from the bill"
-            )
-        
-        # Step 5: Calculate reconciled amount
-        reconciled_amount = ReconciliationService.calculate_total(pagewise_items)
-        total_item_count = ReconciliationService.count_items(pagewise_items)
-        
-        # Step 6: Validate extraction (optional logging)
-        actual_total = ocr_data.get("actual_bill_total", reconciled_amount)
-        is_valid = ReconciliationService.validate_extraction(reconciled_amount, actual_total)
-        
-        if not is_valid:
-            logger.warning(
-                f"Extraction validation warning: "
-                f"Reconciled amount ({reconciled_amount}) differs from "
-                f"actual bill total ({actual_total})"
-            )
-        
-        # Step 7: Prepare response
+        # Step 5: Prepare response
         extract_data = ExtractData(
-            pagewise_line_items=pagewise_items,
+            pagewise_line_items=all_pagewise_items,
             total_item_count=total_item_count,
             reconciled_amount=reconciled_amount
         )
         
         logger.info(
-            f"Extraction successful: {total_item_count} items, "
+            f"Extraction successful: {len(images)} page(s), {total_item_count} items, "
             f"total amount: {reconciled_amount}"
         )
         
