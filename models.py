@@ -11,13 +11,14 @@ class LineItem(BaseModel):
     """Individual line item from a bill"""
     item_name: str = Field(..., description="Name/description of the item")
     item_amount: float = Field(..., description="Total amount for this line item")
-    item_rate: Optional[float] = Field(None, description="Rate/price per unit")
-    item_quantity: Optional[float] = Field(None, description="Quantity of items")
+    item_rate: float = Field(0.0, description="Rate/price per unit (0.0 if not present)")
+    item_quantity: float = Field(0.0, description="Quantity of items (0.0 if not present)")
 
 
 class PagewiseLineItems(BaseModel):
     """Line items grouped by page number"""
     page_no: str = Field(..., description="Page number")
+    page_type: str = Field(..., description="Type of page: Bill Detail, Final Bill, or Pharmacy")
     bill_items: List[LineItem] = Field(..., description="List of line items on this page")
 
 

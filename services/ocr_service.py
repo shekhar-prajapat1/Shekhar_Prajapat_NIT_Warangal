@@ -42,23 +42,32 @@ CRITICAL INSTRUCTIONS:
 2. Do not double-count any items.
 3. For each line item, extract:
    - item_name: The product/service name or description
-   - item_quantity: The quantity (if available, otherwise null)
-   - item_rate: The rate/price per unit (if available, otherwise null)
-   - item_amount: The total amount for that line item (REQUIRED)
+   - item_quantity: The quantity. If NOT present, use 0.0 (not null)
+   - item_rate: The rate/price per unit. If NOT present, use 0.0 (not null)
+   - item_amount: The total amount for that line item (REQUIRED - extract EXACTLY as shown, no rounding)
 
-4. Identify the page number (usually "1" for single page bills).
-5. **Look for the "Total" or "Net Amount" printed on the bill.**
-6. **Verify your work:** Sum up the `item_amount` of all line items you extracted. Compare this sum with the printed total.
+4. IMPORTANT: Only extract MONETARY values for item_amount. DO NOT extract:
+   - Invoice dates or times
+   - Invoice numbers or IDs
+   - Patient IDs or registration numbers
+   - Any non-currency values
+   
+5. Identify the page_type. It must be EXACTLY one of: "Bill Detail", "Final Bill", "Pharmacy"
+
+6. Look for the "Total" or "Net Amount" printed on the bill.
+
+7. Verify your work: Sum up the item_amount of all line items. Compare with the printed total.
    - If they don't match, check if you missed an item or included a sub-total by mistake.
-   - Ensure you are NOT including "Sub Total" or "Tax" lines as separate line items if they are already part of the final total calculation structure (unless they are specific line charges like "Service Charge").
+   - Do NOT include "Sub Total" or "Tax" lines as separate line items if they are already part of the final total.
 
 Return the data in this EXACT JSON format:
 {
   "page_no": "1",
+  "page_type": "Bill Detail",
   "line_items": [
     {
       "item_name": "Product Name",
-      "item_quantity": 2,
+      "item_quantity": 2.0,
       "item_rate": 100.50,
       "item_amount": 201.00
     }
@@ -67,12 +76,13 @@ Return the data in this EXACT JSON format:
   "actual_bill_total": 201.00
 }
 
-IMPORTANT: 
+IMPORTANT RULES:
 - Return ONLY valid JSON, no markdown formatting or code blocks.
-- `extracted_total` should be the sum of all `item_amount` values you found.
-- `actual_bill_total` should be the final total explicitly printed on the bill image.
-- Be precise with decimal values.
-- If quantity or rate is not clearly visible, use null.
+- If item_rate is not present, set item_rate = 0.0
+- If item_quantity is not present, set item_quantity = 0.0
+- Item amount must be EXACTLY as shown in the document. No rounding allowed.
+- page_type must be exactly one of: "Bill Detail", "Final Bill", "Pharmacy"
+- Only extract currency amounts for item_amount (ignore dates, IDs, etc.)
 """
             
             logger.info("Sending image to Gemini Vision API for extraction")
