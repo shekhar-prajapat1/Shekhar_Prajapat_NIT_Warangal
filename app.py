@@ -1,8 +1,14 @@
-from services.reconciliation_service import ReconciliationService
-import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import requests
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import logging
+from models import ExtractRequest, ExtractResponse, ExtractData
+from config import config, Config
+from services.document_processor import DocumentProcessor
+from services.ocr_service import OCRService
+from services.extraction_service import ExtractionService
+from services.reconciliation_service import ReconciliationService
 
 # Configure logging
 logging.basicConfig(
@@ -37,16 +43,14 @@ except ValueError as e:
     ocr_service = None
 
 
-@app.get("/")
-async def root():
+@app.get("/health")
+async def health_check():
     """Health check endpoint"""
     return {
         "status": "running",
         "service": config.API_TITLE,
         "version": config.API_VERSION
     }
-
-
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
