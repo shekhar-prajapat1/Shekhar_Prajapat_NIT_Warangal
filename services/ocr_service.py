@@ -34,55 +34,35 @@ class OCRService:
         """
         try:
             # Create detailed prompt for bill extraction
-            prompt = """
-You are an expert at extracting data from bills and invoices. Analyze this bill/invoice image carefully and extract ALL line items with their details.
+            prompt = """Extract all line items from this medical bill/invoice image.
 
-CRITICAL INSTRUCTIONS:
-1. Extract EVERY line item - do not miss any entries.
-2. Do not double-count any items.
-3. For each line item, extract:
-   - item_name: The product/service name or description
-   - item_quantity: The quantity. If NOT present, use 0.0 (not null)
-   - item_rate: The rate/price per unit. If NOT present, use 0.0 (not null)
-   - item_amount: The total amount for that line item (REQUIRED - extract EXACTLY as shown, no rounding)
+For each line item, provide:
+- item_name: product/service name
+- item_quantity: quantity (use 0.0 if not shown)
+- item_rate: price per unit (use 0.0 if not shown)  
+- item_amount: total amount (REQUIRED - exact value, no rounding)
 
-4. IMPORTANT: Only extract MONETARY values for item_amount. DO NOT extract:
-   - Invoice dates or times
-   - Invoice numbers or IDs
-   - Patient IDs or registration numbers
-   - Any non-currency values
-   
-5. Identify the page_type. It must be EXACTLY one of: "Bill Detail", "Final Bill", "Pharmacy"
+IMPORTANT:
+- Only extract MONETARY amounts (not dates, invoice numbers, or IDs)
+- page_type must be one of: "Bill Detail", "Final Bill", or "Pharmacy"
+- Use 0.0 for missing quantity/rate values
+- Extract amounts exactly as shown
 
-6. Look for the "Total" or "Net Amount" printed on the bill.
-
-7. Verify your work: Sum up the item_amount of all line items. Compare with the printed total.
-   - If they don't match, check if you missed an item or included a sub-total by mistake.
-   - Do NOT include "Sub Total" or "Tax" lines as separate line items if they are already part of the final total.
-
-Return the data in this EXACT JSON format:
+Return ONLY this JSON (no markdown, no code blocks):
 {
   "page_no": "1",
   "page_type": "Bill Detail",
   "line_items": [
     {
-      "item_name": "Product Name",
-      "item_quantity": 2.0,
-      "item_rate": 100.50,
-      "item_amount": 201.00
+      "item_name": "Item 1",
+      "item_quantity": 1.0,
+      "item_rate": 100.0,
+      "item_amount": 100.0
     }
   ],
-  "extracted_total": 201.00,
-  "actual_bill_total": 201.00
+  "extracted_total": 100.0,
+  "actual_bill_total": 100.0
 }
-
-IMPORTANT RULES:
-- Return ONLY valid JSON, no markdown formatting or code blocks.
-- If item_rate is not present, set item_rate = 0.0
-- If item_quantity is not present, set item_quantity = 0.0
-- Item amount must be EXACTLY as shown in the document. No rounding allowed.
-- page_type must be exactly one of: "Bill Detail", "Final Bill", "Pharmacy"
-- Only extract currency amounts for item_amount (ignore dates, IDs, etc.)
 """
             
             logger.info("Sending image to Gemini Vision API for extraction")
@@ -95,12 +75,19 @@ IMPORTANT RULES:
             logger.info(f"Received response from Gemini: {response_text[:200]}...")
             
             # Clean up response (remove markdown code blocks if present)
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            if response_text.startswith("```"):
+            if "```json" in response_text:
+                # Extract content between ```json and ```
+                start = response_text.find("```json") + 7
+                end = response_text.find("```", start)
+                if end != -1:
+                    response_text = response_text[start:end]
+            elif response_text.startswith("```"):
+                # Remove opening ```
                 response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
+                # Remove closing ```
+                if response_text.endswith("```"):
+                    response_text = response_text[:-3]
+            
             response_text = response_text.strip()
             
             # Parse JSON response
@@ -110,10 +97,38 @@ IMPORTANT RULES:
                 return extracted_data
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response: {e}")
-                logger.error(f"Response text: {response_text}")
-                # Return empty structure if parsing fails
+                logger.error(f"Response text (first 500 chars): {response_text[:500]}")
+                
+                # Try to ask Gemini again with stricter JSON format
+                repair_prompt = f"""The previous response had invalid JSON. Please fix it and return ONLY valid JSON with no special characters in strings.
+
+Previous response:
+{response_text[:1000]}
+
+Return corrected JSON with properly escaped quotes."""
+                
+                try:
+                    repair_response = self.model.generate_content(repair_prompt)
+                    repaired_text = repair_response.text.strip()
+                    
+                    # Clean again
+                    if "```json" in repaired_text:
+                        start = repaired_text.find("```json") + 7
+                        end = repaired_text.find("```", start)
+                        if end != -1:
+                            repaired_text = repaired_text[start:end]
+                    
+                    repaired_text = repaired_text.strip()
+                    extracted_data = json.loads(repaired_text)
+                    logger.info("Successfully repaired and parsed JSON")
+                    return extracted_data
+                except:
+                    pass
+                
+                # Last resort: return empty structure
                 return {
                     "page_no": "1",
+                    "page_type": "Bill Detail",
                     "line_items": [],
                     "extracted_total": 0.0,
                     "actual_bill_total": 0.0,

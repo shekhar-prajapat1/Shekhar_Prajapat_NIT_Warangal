@@ -37,17 +37,23 @@ class DocumentProcessor:
         """
         try:
             logger.info(f"Downloading document from: {url}")
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=30, headers={'User-Agent': 'Mozilla/5.0'})
             response.raise_for_status()
             
             content_type = response.headers.get('Content-Type', '').lower()
+            url_lower = url.lower()
             
-            # Handle PDF
-            if 'application/pdf' in content_type or url.lower().endswith('.pdf'):
+            # Check if it's a PDF (by content-type or extension)
+            is_pdf = ('application/pdf' in content_type or 
+                     url_lower.endswith('.pdf') or
+                     response.content[:4] == b'%PDF')
+            
+            if is_pdf:
                 try:
                     from pdf2image import convert_from_bytes
+                    logger.info("Detected PDF document, converting to images...")
                     # Convert ALL pages of PDF to images
-                    images = convert_from_bytes(response.content)
+                    images = convert_from_bytes(response.content, dpi=200)
                     if images:
                         logger.info(f"Successfully converted PDF to {len(images)} page(s)")
                         return images
@@ -59,12 +65,33 @@ class DocumentProcessor:
                     return []
                 except Exception as e:
                     logger.error(f"PDF conversion failed: {e}")
-                    return []
+                    # Try to open as image anyway
+                    try:
+                        image = Image.open(BytesIO(response.content))
+                        logger.info("Opened as image instead")
+                        return [image]
+                    except:
+                        return []
 
-            # Handle Images (single page)
-            image = Image.open(BytesIO(response.content))
-            logger.info(f"Image downloaded successfully. Size: {image.size}, Mode: {image.mode}")
-            return [image]
+            # Handle Images (single page) - try multiple methods
+            try:
+                image = Image.open(BytesIO(response.content))
+                logger.info(f"Image downloaded successfully. Size: {image.size}, Mode: {image.mode}")
+                return [image]
+            except Exception as e:
+                logger.error(f"Failed to open as image: {e}")
+                # Last resort: try to save and reopen
+                try:
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+                        tmp.write(response.content)
+                        tmp_path = tmp.name
+                    image = Image.open(tmp_path)
+                    import os
+                    os.unlink(tmp_path)
+                    return [image]
+                except:
+                    return []
             
         except requests.RequestException as e:
             logger.error(f"Failed to download document: {e}")

@@ -1,0 +1,13 @@
+import requests
+import json
+
+url = "http://localhost:8001/extract-bill-data"
+data = {
+    "document": "https://hackrx.blob.core.windows.net/assets/datathon-IIT/sample_1.png?sv=2025-07-05&spr=https&st=2025-11-24T14%3A21%3A03Z&se=2026-11-25T14%3A21%3A00Z&sr=b&sp=r&sig=2szJobwLVzcVSmg5IPWjRT9k7pHq2Tvifd6seRa2xRI%3D"
+}
+
+print("Testing Sample 1...")
+response = requests.post(url, json=data)
+print(f"Status: {response.status_code}")
+result = response.json()
+print(json.dumps(result, indent=2))
