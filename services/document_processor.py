@@ -22,21 +22,42 @@ class DocumentProcessor:
             PIL Image object or None if download fails
         """
         try:
-            logger.info(f"Downloading image from: {url}")
+            logger.info(f"Downloading document from: {url}")
             response = requests.get(url, timeout=30)
             response.raise_for_status()
             
-            # Open image from bytes
+            content_type = response.headers.get('Content-Type', '').lower()
+            
+            # Handle PDF
+            if 'application/pdf' in content_type or url.lower().endswith('.pdf'):
+                try:
+                    from pdf2image import convert_from_bytes
+                    # Convert first page of PDF to image
+                    images = convert_from_bytes(response.content)
+                    if images:
+                        logger.info("Successfully converted PDF to image")
+                        return images[0]
+                    else:
+                        logger.error("PDF conversion returned no images")
+                        return None
+                except ImportError:
+                    logger.error("pdf2image not installed. Cannot process PDFs.")
+                    return None
+                except Exception as e:
+                    logger.error(f"PDF conversion failed: {e}")
+                    return None
+
+            # Handle Images
             image = Image.open(BytesIO(response.content))
             logger.info(f"Image downloaded successfully. Size: {image.size}, Mode: {image.mode}")
             
             return image
             
         except requests.RequestException as e:
-            logger.error(f"Failed to download image: {e}")
+            logger.error(f"Failed to download document: {e}")
             return None
         except Exception as e:
-            logger.error(f"Failed to process image: {e}")
+            logger.error(f"Failed to process document: {e}")
             return None
     
     @staticmethod
